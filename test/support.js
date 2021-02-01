@@ -119,11 +119,10 @@ const Support = {
     return this.getSequelizeInstance(config.database, config.username, config.password, sequelizeOptions);
   },
 
-  getConnectionOptions() {
-    const config = Config[this.getTestDialect()];
-
+  getConnectionOptionsWithoutPool() {
+    // Do not break existing config object - shallow clone before `delete config.pool`
+    const config = { ...Config[this.getTestDialect()] };
     delete config.pool;
-
     return config;
   },
 
@@ -205,6 +204,10 @@ const Support = {
     }
 
     return `[${dialect.toUpperCase()}] ${moduleName}`;
+  },
+
+  getPoolMax() {
+    return Config[this.getTestDialect()].pool.max;
   },
 
   expectsql(query, assertions) {

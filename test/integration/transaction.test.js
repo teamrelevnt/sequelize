@@ -493,7 +493,7 @@ if (current.dialect.supports.transactions) {
           expect(count).to.equal(2, 'transactions were fully rolled-back, and no new rows were added');
         });
 
-        it('should release the connection for a deadlocked transaction', async function() {
+        it('should release the connection for a deadlocked transaction (1/2)', async function() {
           const Task = await getAndInitializeTaskModel(this.sequelize);
 
           // 1 of 2 queries should deadlock and be rolled back by InnoDB
@@ -522,6 +522,69 @@ if (current.dialect.supports.transactions) {
               expect(users).to.have.lengthOf(1); // We SHOULD see the created user inside the transaction
             }
           );
+        });
+
+        it('should release the connection for a deadlocked transaction (2/2)', async function() {
+          const causeDeadlock = async () => {
+            // This function MUST cause a deadlock so the test makes any sense. If somehow this
+            // stops giving a deadlock, update this function to give a deadlock in another way.
+            const User = this.sequelize.define('user', {
+              username: Support.Sequelize.STRING,
+              awesome: Support.Sequelize.BOOLEAN
+            }, { timestamps: false });
+
+            await this.sequelize.sync({ force: true });
+            const { id } = await User.create({ username: 'jan' });
+            const t1 = await this.sequelize.transaction();
+
+            // Set a shared mode lock on the row.
+            // Other sessions can read the row, but cannot modify it until t1 commits.
+            // https://dev.mysql.com/doc/refman/5.7/en/innodb-locking-reads.html
+            const t1Jan = await User.findByPk(id, { lock: t1.LOCK.SHARE, transaction: t1 });
+            const t2 = await this.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED });
+            const t2Jan = await User.findByPk(id, { transaction: t2 });
+
+            let stop = false;
+
+            try {
+              await Promise.all([
+                (async () => {
+                  try {
+                    await t2Jan.update({ awesome: false }, { transaction: t2 });
+                    await t2.commit();
+                  } finally {
+                    stop = true;
+                  }
+                })(),
+                (async () => {
+                  await delay(500);
+                  if (stop) return;
+
+                  await t1Jan.update({ awesome: true }, { transaction: t1 });
+
+                  await delay(500);
+                  if (stop) return;
+
+                  await t1.commit();
+                })()
+              ]);
+            } catch (error) {
+              try {
+                await t1.rollback();
+              } catch (_) {} // eslint-disable-line no-empty
+              try {
+                await t2.rollback();
+              } catch (_) {} // eslint-disable-line no-empty
+              throw error;
+            }
+          };
+
+          for (let i = 0; i < 3 * Support.getPoolMax(); i++) {
+            await expect(
+              causeDeadlock()
+            ).to.be.eventually.rejectedWith('Deadlock found when trying to get lock; try restarting transaction');
+            await delay(10);
+          }
         });
       });
     }
