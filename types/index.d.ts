@@ -6,6 +6,7 @@ import TableHints = require('./lib/table-hints');
 import IndexHints = require('./lib/index-hints');
 import Utils = require('./lib/utils');
 
+declare module "sequelize" {
 export * from './lib/sequelize';
 export * from './lib/query-interface';
 export * from './lib/data-types';
@@ -18,8 +19,10 @@ export { useInflection } from './lib/utils';
 export { Utils, QueryTypes, Op, TableHints, IndexHints, DataTypes, Deferrable };
 export { Validator as validator } from './lib/utils/validator-extras';
 
+
 /**
  * Type helper for making certain fields of an object optional. This is helpful
  * for creating the `CreationAttributes` from your `Attributes` for a Model.
  */
 export type Optional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+}
